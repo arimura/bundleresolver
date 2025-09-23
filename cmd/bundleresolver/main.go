@@ -112,24 +112,25 @@ func parseFields(csv string) ([]Field, error) {
 
 func process(r io.Reader, w io.Writer, fields []Field, header bool) error {
 	s := bufio.NewScanner(r)
-	headerPrinted := false
+	// Print header immediately if requested so it's always the first line in output.
+	if header {
+		printHeader(w, fields)
+	}
 	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
+		raw := s.Text()
+		line := strings.TrimSpace(raw)
 		if line == "" {
+			// Preserve alignment: output an empty row corresponding to the blank input line.
+			printFields(w, record{}, fields)
 			continue
-		}
-		if header && !headerPrinted {
-			printHeader(w, fields)
-			headerPrinted = true
 		}
 		rec, err := resolve(line)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "resolve %q: %v\n", line, err)
-			// Still emit placeholder row with available fields as empty strings except URL maybe
+			// Still emit placeholder row; rec may have URL (canonical) or be empty.
 		}
 		printFields(w, rec, fields)
 	}
-	// If there were no data lines but header requested, do not output an orphan header (common tooling expectation)
 	return s.Err()
 }
 
