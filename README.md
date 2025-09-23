@@ -2,6 +2,8 @@
 
 Bundle Resolver is a small CLI that reads iOS App Store numeric IDs and/or Google Play package names from STDIN (one per line) and prints tab-separated (TSV) lines containing the app name, publisher name, and store URL. You can choose which fields to output; by default all three are printed in the order: `name`, `publisher`, `url`.
 
+By default a header row (field names) is printed as the first line. Disable it with `--header=false`.
+
 ## Features
 
 - Bulk resolve many IDs via pipe / redirected file
@@ -68,6 +70,7 @@ bundleresolver [OPTIONS]
 |--------|-------|-------------|---------|
 | `--fields <list>` | `-f` | Comma-separated list of fields to output (order preserved). Allowed: `name,publisher,url` | `name,publisher,url` |
 | `--version` | (none) | Print version and exit | (off) |
+| `--header` | (none) | Print header row (`name\tpublisher\turl`). Use `--header=false` to suppress | `true` |
 | `--help` | `-h` | Show help | (off) |
 
 ### Field definitions
