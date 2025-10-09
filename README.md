@@ -13,6 +13,7 @@ By default a header row (field names) is printed as the first line. Disable it w
 - Clean TSV output (easy to post-process in shell / scripts)
 - Reorder or subset output columns with `--fields`
 - Continues on partial failures (errors go to STDERR, successes still emitted)
+- Option to skip error lines entirely with `--skip-errors`
 
 ## Install
 
@@ -60,6 +61,16 @@ echo -e "123456789\ncom.example.myapp" | bundleresolver -f publisher
 echo "123456789" | bundleresolver | cut -f1   # only name column
 ```
 
+### Skip error lines
+
+By default, if an ID fails to resolve, an empty (or partial) row is still output to maintain line alignment with the input. To skip failed lines entirely:
+
+```bash
+cat ids.txt | bundleresolver --skip-errors
+```
+
+Error messages are always written to STDERR regardless of this option.
+
 ## Command Reference
 
 ```
@@ -71,6 +82,7 @@ bundleresolver [OPTIONS]
 | `--fields <list>` | `-f` | Comma-separated list of fields to output (order preserved). Allowed: `name,publisher,url` | `name,publisher,url` |
 | `--version` | (none) | Print version and exit | (off) |
 | `--header` | (none) | Print header row (`name\tpublisher\turl`). Use `--header=false` to suppress | `true` |
+| `--skip-errors` | (none) | Skip lines that fail to resolve instead of outputting empty rows | `false` |
 | `--help` | `-h` | Show help | (off) |
 
 ### Field definitions

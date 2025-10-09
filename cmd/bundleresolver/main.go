@@ -44,11 +44,13 @@ func main() {
 	var fieldsCSV string
 	var showVersion bool
 	var showHeader bool
+	var skipErrors bool
 
 	flag.StringVar(&fieldsCSV, "fields", "name,publisher,url", "Comma-separated list of fields to output (allowed: name,publisher,url)")
 	flag.StringVar(&fieldsCSV, "f", "name,publisher,url", "Alias of --fields")
 	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
 	flag.BoolVar(&showHeader, "header", true, "Print header row as first line (use --header=false to disable)")
+	flag.BoolVar(&skipErrors, "skip-errors", false, "Skip lines that fail to resolve instead of outputting empty rows")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Bundle Resolver\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] < <input>\n\n", os.Args[0])
@@ -68,7 +70,7 @@ func main() {
 		log.Fatalf("invalid --fields: %v", err)
 	}
 
-	if err := process(os.Stdin, os.Stdout, fields, showHeader); err != nil {
+	if err := process(os.Stdin, os.Stdout, fields, showHeader, skipErrors); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
@@ -110,7 +112,7 @@ func parseFields(csv string) ([]Field, error) {
 	return res, nil
 }
 
-func process(r io.Reader, w io.Writer, fields []Field, header bool) error {
+func process(r io.Reader, w io.Writer, fields []Field, header bool, skipErrors bool) error {
 	s := bufio.NewScanner(r)
 	// Print header immediately if requested so it's always the first line in output.
 	if header {
@@ -127,7 +129,11 @@ func process(r io.Reader, w io.Writer, fields []Field, header bool) error {
 		rec, err := resolve(line)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "resolve %q: %v\n", line, err)
-			// Still emit placeholder row; rec may have URL (canonical) or be empty.
+			// If skipErrors is true, skip this line entirely
+			if skipErrors {
+				continue
+			}
+			// Otherwise, still emit placeholder row; rec may have URL (canonical) or be empty.
 		}
 		printFields(w, rec, fields)
 	}
