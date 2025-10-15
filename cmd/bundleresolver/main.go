@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -175,10 +176,22 @@ func sanitize(s string) string {
 	if s == "" {
 		return s
 	}
-	s = strings.ReplaceAll(s, "\t", " ")
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Normalize TSV-breaking whitespace to a single ASCII space.
+		switch r {
+		case '\t', '\n', '\r':
+			b.WriteByte(' ')
+			continue
+		}
+		// Drop Unicode control and format characters such as U+202A.
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // resolve decides platform and fetches metadata.
