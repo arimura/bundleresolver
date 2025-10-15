@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -242,7 +243,29 @@ func fetchIOS(appID string) (record, error) {
 }
 
 func fetchAndroid(pkg string) (record, error) {
-	storeURL := fmt.Sprintf("https://play.google.com/store/apps/details?id=%s", pkg)
+	// Step 1: Try direct access first
+	rec, err := fetchAndroidDirect(pkg)
+	if err == nil {
+		return rec, nil
+	}
+
+	// Step 2: If not found, try case-insensitive search fallback
+	if isNotFoundError(err) {
+		correctPkg, searchErr := searchAndroidPackage(pkg)
+		if searchErr != nil {
+			// Search also failed, return original error
+			return record{URL: buildPlayStoreURL(pkg)}, err
+		}
+		// Retry with the correct package name
+		return fetchAndroidDirect(correctPkg)
+	}
+
+	// Other errors (network, etc.) - return as-is
+	return record{URL: buildPlayStoreURL(pkg)}, err
+}
+
+func fetchAndroidDirect(pkg string) (record, error) {
+	storeURL := buildPlayStoreURL(pkg)
 	resp, err := httpClient.Get(storeURL)
 	if err != nil {
 		return record{URL: storeURL}, err
@@ -268,7 +291,93 @@ func fetchAndroid(pkg string) (record, error) {
 		// New Play Store layout fallback (may change frequently)
 		publisher = strings.TrimSpace(doc.Find("a[href^='/store/apps/dev'] span").First().Text())
 	}
+
+	// If we couldn't extract name, it's likely a 404 with some HTML response
+	if name == "" {
+		return record{URL: storeURL}, fmt.Errorf("app not found or unable to parse")
+	}
+
 	return record{Name: name, Publisher: publisher, URL: storeURL}, nil
+}
+
+func buildPlayStoreURL(pkg string) string {
+	return fmt.Sprintf("https://play.google.com/store/apps/details?id=%s", pkg)
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Check for 404 or similar not-found indicators
+	return strings.Contains(errStr, "404") ||
+		strings.Contains(errStr, "not found") ||
+		strings.Contains(errStr, "unable to parse")
+}
+
+func searchAndroidPackage(pkg string) (string, error) {
+	searchURL := fmt.Sprintf("https://play.google.com/store/search?c=apps&q=%s",
+		url.QueryEscape(pkg))
+
+	resp, err := httpClient.Get(searchURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("search failed: %s", resp.Status)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract package names from search results
+	var foundPkg string
+	doc.Find("a[href*='/store/apps/details?id=']").EachWithBreak(func(i int, s *goquery.Selection) bool {
+		href, exists := s.Attr("href")
+		if !exists {
+			return true // continue
+		}
+
+		// Extract package name from URL
+		extractedPkg := extractPackageFromURL(href)
+		if extractedPkg == "" {
+			return true // continue
+		}
+
+		// Case-insensitive comparison
+		if strings.EqualFold(extractedPkg, pkg) {
+			foundPkg = extractedPkg
+			return false // break
+		}
+		return true // continue
+	})
+
+	if foundPkg == "" {
+		return "", fmt.Errorf("package not found in search results")
+	}
+
+	return foundPkg, nil
+}
+
+func extractPackageFromURL(href string) string {
+	// Parse URL to extract package ID from query parameter
+	// href can be relative like "/store/apps/details?id=com.example.app"
+	// or full URL
+
+	// Handle relative URLs
+	if !strings.HasPrefix(href, "http") {
+		href = "https://play.google.com" + href
+	}
+
+	u, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("id")
 }
 
 // (removed) previous naive JSON extractor replaced with proper json.Decoder usage
