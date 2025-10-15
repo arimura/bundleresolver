@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -48,12 +49,14 @@ func main() {
 	var showVersion bool
 	var showHeader bool
 	var skipErrors bool
+	var outputCSV bool
 
 	flag.StringVar(&fieldsCSV, "fields", "bundle,name,publisher,url", "Comma-separated list of fields to output (allowed: bundle,name,publisher,url)")
 	flag.StringVar(&fieldsCSV, "f", "bundle,name,publisher,url", "Alias of --fields")
 	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
 	flag.BoolVar(&showHeader, "header", true, "Print header row as first line (use --header=false to disable)")
 	flag.BoolVar(&skipErrors, "skip-errors", false, "Skip lines that fail to resolve instead of outputting empty rows")
+	flag.BoolVar(&outputCSV, "csv", false, "Emit output as CSV (RFC4180 with quoting) instead of TSV")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Bundle Resolver\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] < <input>\n\n", os.Args[0])
@@ -73,7 +76,7 @@ func main() {
 		log.Fatalf("invalid --fields: %v", err)
 	}
 
-	if err := process(os.Stdin, os.Stdout, fields, showHeader, skipErrors); err != nil {
+	if err := process(os.Stdin, os.Stdout, fields, showHeader, skipErrors, outputCSV); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
@@ -116,21 +119,69 @@ func parseFields(csv string) ([]Field, error) {
 	return res, nil
 }
 
-func process(r io.Reader, w io.Writer, fields []Field, header bool, skipErrors bool) error {
+func process(r io.Reader, w io.Writer, fields []Field, header bool, skipErrors bool, csvOutput bool) error {
 	s := bufio.NewScanner(r)
+
+	var writeRow func([]string) error
+	flush := func() error { return nil }
+
+	if csvOutput {
+		csvWriter := csv.NewWriter(w)
+		writeRow = func(cols []string) error {
+			return csvWriter.Write(cols)
+		}
+		flush = func() error {
+			csvWriter.Flush()
+			return csvWriter.Error()
+		}
+	} else {
+		writeRow = func(cols []string) error {
+			_, err := fmt.Fprintln(w, strings.Join(cols, "\t"))
+			return err
+		}
+	}
+
+	writeRecord := func(rec record) error {
+		cols := make([]string, len(fields))
+		for i, f := range fields {
+			var val string
+			switch f {
+			case FieldBundle:
+				val = rec.Bundle
+			case FieldName:
+				val = rec.Name
+			case FieldPublisher:
+				val = rec.Publisher
+			case FieldURL:
+				val = rec.URL
+			}
+			cols[i] = sanitize(val)
+		}
+		return writeRow(cols)
+	}
+
 	// Print header immediately if requested so it's always the first line in output.
 	if header {
-		printHeader(w, fields)
+		names := make([]string, len(fields))
+		for i, f := range fields {
+			names[i] = string(f)
+		}
+		if err := writeRow(names); err != nil {
+			return err
+		}
 	}
+
 	for s.Scan() {
 		raw := s.Text()
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			// Preserve alignment: output an empty row corresponding to the blank input line.
-			printFields(w, record{}, fields)
+			if err := writeRecord(record{}); err != nil {
+				return err
+			}
 			continue
 		}
-		rec, err := resolve(line)
+		rec, err := resolveFunc(line)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "resolve %q: %v\n", line, err)
 			// If skipErrors is true, skip this line entirely
@@ -139,36 +190,16 @@ func process(r io.Reader, w io.Writer, fields []Field, header bool, skipErrors b
 			}
 			// Otherwise, still emit placeholder row; rec may have URL (canonical) or be empty.
 		}
-		printFields(w, rec, fields)
-	}
-	return s.Err()
-}
-
-func printHeader(w io.Writer, fields []Field) {
-	names := make([]string, len(fields))
-	for i, f := range fields {
-		names[i] = string(f)
-	}
-	fmt.Fprintln(w, strings.Join(names, "\t"))
-}
-
-func printFields(w io.Writer, rec record, fields []Field) {
-	cols := make([]string, len(fields))
-	for i, f := range fields {
-		var val string
-		switch f {
-		case FieldBundle:
-			val = rec.Bundle
-		case FieldName:
-			val = rec.Name
-		case FieldPublisher:
-			val = rec.Publisher
-		case FieldURL:
-			val = rec.URL
+		if err := writeRecord(rec); err != nil {
+			return err
 		}
-		cols[i] = sanitize(val)
 	}
-	fmt.Fprintln(w, strings.Join(cols, "\t"))
+
+	if err := s.Err(); err != nil {
+		return err
+	}
+
+	return flush()
 }
 
 // sanitize removes tabs and newlines to preserve TSV integrity.
@@ -204,6 +235,8 @@ func resolve(id string) (record, error) {
 	}
 	return record{}, fmt.Errorf("cannot detect platform for %q", id)
 }
+
+var resolveFunc = resolve
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
