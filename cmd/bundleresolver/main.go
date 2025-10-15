@@ -25,12 +25,13 @@ var version = "0.1.0"
 type Field string
 
 const (
+	FieldBundle    Field = "bundle"
 	FieldName      Field = "name"
 	FieldPublisher Field = "publisher"
 	FieldURL       Field = "url"
 )
 
-var allowedFields = []Field{FieldName, FieldPublisher, FieldURL}
+var allowedFields = []Field{FieldBundle, FieldName, FieldPublisher, FieldURL}
 var fieldSet map[Field]struct{}
 
 func init() {
@@ -47,8 +48,8 @@ func main() {
 	var showHeader bool
 	var skipErrors bool
 
-	flag.StringVar(&fieldsCSV, "fields", "name,publisher,url", "Comma-separated list of fields to output (allowed: name,publisher,url)")
-	flag.StringVar(&fieldsCSV, "f", "name,publisher,url", "Alias of --fields")
+	flag.StringVar(&fieldsCSV, "fields", "bundle,name,publisher,url", "Comma-separated list of fields to output (allowed: bundle,name,publisher,url)")
+	flag.StringVar(&fieldsCSV, "f", "bundle,name,publisher,url", "Alias of --fields")
 	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
 	flag.BoolVar(&showHeader, "header", true, "Print header row as first line (use --header=false to disable)")
 	flag.BoolVar(&skipErrors, "skip-errors", false, "Skip lines that fail to resolve instead of outputting empty rows")
@@ -82,6 +83,7 @@ var (
 )
 
 type record struct {
+	Bundle    string
 	Name      string
 	Publisher string
 	URL       string
@@ -154,6 +156,8 @@ func printFields(w io.Writer, rec record, fields []Field) {
 	for i, f := range fields {
 		var val string
 		switch f {
+		case FieldBundle:
+			val = rec.Bundle
 		case FieldName:
 			val = rec.Name
 		case FieldPublisher:
@@ -210,6 +214,7 @@ func fetchIOS(appID string) (record, error) {
 				TrackName    string `json:"trackName"`
 				SellerName   string `json:"sellerName"`
 				TrackViewURL string `json:"trackViewUrl"`
+				BundleID     string `json:"bundleId"`
 			} `json:"results"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -225,7 +230,7 @@ func fetchIOS(appID string) (record, error) {
 		}
 		// Normalize to canonical short form per README
 		canonical := fmt.Sprintf("https://apps.apple.com/app/id%s", appID)
-		return record{Name: res.TrackName, Publisher: res.SellerName, URL: canonical}, nil
+		return record{Bundle: appID, Name: res.TrackName, Publisher: res.SellerName, URL: canonical}, nil
 	}
 
 	// 1st try: no country (Apple often defaults to US)
@@ -239,7 +244,7 @@ func fetchIOS(appID string) (record, error) {
 		return jpRec, nil
 	}
 	// Return the original error but still provide constructed URL
-	return record{URL: fmt.Sprintf("https://apps.apple.com/app/id%s", appID)}, err
+	return record{Bundle: appID, URL: fmt.Sprintf("https://apps.apple.com/app/id%s", appID)}, err
 }
 
 func fetchAndroid(pkg string) (record, error) {
@@ -254,30 +259,30 @@ func fetchAndroid(pkg string) (record, error) {
 		correctPkg, searchErr := searchAndroidPackage(pkg)
 		if searchErr != nil {
 			// Search also failed, return original error
-			return record{URL: buildPlayStoreURL(pkg)}, err
+			return record{Bundle: pkg, URL: buildPlayStoreURL(pkg)}, err
 		}
 		// Retry with the correct package name
 		return fetchAndroidDirect(correctPkg)
 	}
 
 	// Other errors (network, etc.) - return as-is
-	return record{URL: buildPlayStoreURL(pkg)}, err
+	return record{Bundle: pkg, URL: buildPlayStoreURL(pkg)}, err
 }
 
 func fetchAndroidDirect(pkg string) (record, error) {
 	storeURL := buildPlayStoreURL(pkg)
 	resp, err := httpClient.Get(storeURL)
 	if err != nil {
-		return record{URL: storeURL}, err
+		return record{Bundle: pkg, URL: storeURL}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return record{URL: storeURL}, fmt.Errorf("status %s", resp.Status)
+		return record{Bundle: pkg, URL: storeURL}, fmt.Errorf("status %s", resp.Status)
 	}
 	// Parse HTML with goquery
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
-		return record{URL: storeURL}, err
+		return record{Bundle: pkg, URL: storeURL}, err
 	}
 	name := strings.TrimSpace(doc.Find("h1 span").First().Text())
 	if name == "" { // fallback to title tag
@@ -294,10 +299,9 @@ func fetchAndroidDirect(pkg string) (record, error) {
 
 	// If we couldn't extract name, it's likely a 404 with some HTML response
 	if name == "" {
-		return record{URL: storeURL}, fmt.Errorf("app not found or unable to parse")
+		return record{Bundle: pkg, URL: storeURL}, fmt.Errorf("app not found or unable to parse")
 	}
-
-	return record{Name: name, Publisher: publisher, URL: storeURL}, nil
+	return record{Bundle: pkg, Name: name, Publisher: publisher, URL: storeURL}, nil
 }
 
 func buildPlayStoreURL(pkg string) string {

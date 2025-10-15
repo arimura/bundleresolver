@@ -1,6 +1,6 @@
 # Bundle Resolver
 
-Bundle Resolver is a small CLI that reads iOS App Store numeric IDs and/or Google Play package names from STDIN (one per line) and prints tab-separated (TSV) lines containing the app name, publisher name, and store URL. You can choose which fields to output; by default all three are printed in the order: `name`, `publisher`, `url`.
+Bundle Resolver is a small CLI that reads iOS App Store numeric IDs and/or Google Play package names from STDIN (one per line) and prints tab-separated (TSV) lines containing the bundle column (iOS App ID or Android package name), app name, publisher name, and store URL. You can choose which fields to output; by default all four are printed in the order: `bundle`, `name`, `publisher`, `url`.
 
 By default a header row (field names) is printed as the first line. Disable it with `--header=false`.
 
@@ -79,9 +79,9 @@ bundleresolver [OPTIONS]
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--fields <list>` | `-f` | Comma-separated list of fields to output (order preserved). Allowed: `name,publisher,url` | `name,publisher,url` |
+| `--fields <list>` | `-f` | Comma-separated list of fields to output (order preserved). Allowed: `bundle,name,publisher,url` | `bundle,name,publisher,url` |
 | `--version` | (none) | Print version and exit | (off) |
-| `--header` | (none) | Print header row (`name\tpublisher\turl`). Use `--header=false` to suppress | `true` |
+| `--header` | (none) | Print header row (`bundle\tname\tpublisher\turl`). Use `--header=false` to suppress | `true` |
 | `--skip-errors` | (none) | Skip lines that fail to resolve instead of outputting empty rows | `false` |
 | `--help` | `-h` | Show help | (off) |
 
@@ -89,6 +89,7 @@ bundleresolver [OPTIONS]
 
 | Field | Meaning |
 |-------|---------|
+| `bundle` | iOS App ID (numeric) or Android package name |
 | `name` | App display name |
 | `publisher` | Developer / publisher name |
 | `url` | Official store page URL |
@@ -97,10 +98,10 @@ bundleresolver [OPTIONS]
 
 One record per input line. Columns are separated by a single TAB (`\t`). No trailing TAB. Unavailable values become empty strings. The column count always matches the number of requested fields.
 
-Example (default 3 fields):
+Example (default 4 fields):
 
 ```
-AppName	PublisherName	https://apps.apple.com/app/id123456789
-My Android App	Sample Studio	https://play.google.com/store/apps/details?id=com.example.myapp
+123456789	AppName	PublisherName	https://apps.apple.com/app/id123456789
+com.example.myapp	My Android App	Sample Studio	https://play.google.com/store/apps/details?id=com.example.myapp
 ```
 
